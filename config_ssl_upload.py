@@ -71,7 +71,7 @@ def cfg():
     use_clahe = False
     use_slice_adapter = False
     adapter_layers=3
-    debug=False
+    debug=True
     skip_no_organ_slices=True
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
@@ -149,7 +149,7 @@ def cfg():
 
     path = {
         'log_dir': './runs',
-        'SABS':{'data_dir': "./data/SABS/sabs_CT_normalized"
+        'SABS':{'data_dir': "/kaggle/input/preprocessed-data/sabs_CT_normalized/sabs_CT_normalized"
             },
         'SABS_448':{'data_dir': "./data/SABS/sabs_CT_normalized_448"
             },
@@ -157,19 +157,16 @@ def cfg():
             },
         'C0':{'data_dir': "feed your dataset path here"
             },
-        'CHAOST2':{'data_dir': "./data/CHAOST2/chaos_MR_T2_normalized/"
+        'CHAOST2':{'data_dir': "/kaggle/input/preprocessed-data/chaos_MR_T2_normalized/chaos_MR_T2_normalized"
             },
         'CHAOST2_672':{'data_dir': "./data/CHAOST2/chaos_MR_T2_normalized_672/"
             },
-        'BRATS2021:': {'data_dir': "./data/BRATS/BRATS_T2_normalized/"},
-        'LITS17': {'data_dir': "./data/LITS17/lits17_CT_normalized/"},
-        'SABS_Superpix':{'data_dir': "./data/SABS/sabs_CT_normalized"},
+        'SABS_Superpix':{'data_dir': "/kaggle/input/preprocessed-data/sabs_CT_normalized/sabs_CT_normalized"},
         'C0_Superpix':{'data_dir': "feed your dataset path here"},
-        'CHAOST2_Superpix':{'data_dir': "./data/CHAOST2/chaos_MR_T2_normalized/"},
+        'CHAOST2_Superpix':{'data_dir': "/kaggle/input/preprocessed-data/chaos_MR_T2_normalized/chaos_MR_T2_normalized"},
         'CHAOST2_Superpix_672':{'data_dir': "./data/CHAOST2/chaos_MR_T2_normalized_672/"},
         'SABS_Superpix_448':{'data_dir': "./data/SABS/sabs_CT_normalized_448"},
         'SABS_Superpix_672':{'data_dir': "./data/SABS/sabs_CT_normalized_672"},
-        'LITS17_Superpix':{'data_dir': "./data/LITS17/lits17_CT_normalized"},
         }
 
 

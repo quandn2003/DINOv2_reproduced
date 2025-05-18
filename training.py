@@ -241,3 +241,9 @@ def main(_run, _config, _log):
                 break  # finish up
         epoch_losses.append(np.mean(losses))
         print(f"Epoch {sub_epoch} loss: {np.mean(losses)}")
+    
+    # Save the final model regardless of iteration count
+    _log.info('###### Saving final model ######')
+    final_save_path = os.path.join(f'{_run.observers[0].dir}/snapshots', f'final_model.pth')
+    torch.save(model.state_dict(), final_save_path)
+    print(f"Final model saved to: {final_save_path}")

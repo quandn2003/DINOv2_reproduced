@@ -56,7 +56,7 @@ class ManualAnnoDataset(BaseDataset):
         self.tile_z_dim = tile_z_dim
         self.base_dir = base_dir
         self.nsup = nsup
-        self.img_pids = [ re.findall('\d+', fid)[-1] for fid in glob.glob(self.base_dir + "/image_*.nii.gz") ]
+        self.img_pids = [ re.findall('\d+', fid)[-1] for fid in glob.glob(self.base_dir + "/image_*.nii") ]
         self.img_pids = CircularList(sorted( self.img_pids, key = lambda x: int(x))) # make it circular for the ease of spliting folds
         if 'use_clahe' not in kwargs:
             self.use_clahe = False
@@ -227,11 +227,11 @@ class ManualAnnoDataset(BaseDataset):
         return out_list
 
     def read_classfiles(self):
-        with open(   os.path.join(self.base_dir, f'classmap_{self.min_fg}.json') , 'r' ) as fopen:
+        with open(   os.path.join(self.base_dir, f'.classmap_{self.min_fg}.json') , 'r' ) as fopen:
             cls_map =  json.load( fopen)
             fopen.close()
 
-        with open(   os.path.join(self.base_dir, 'classmap_1.json') , 'r' ) as fopen:
+        with open(   os.path.join(self.base_dir, '.classmap_1.json') , 'r' ) as fopen:
             self.tp1_cls_map =  json.load( fopen)
             fopen.close()
 

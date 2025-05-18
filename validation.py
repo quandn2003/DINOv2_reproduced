@@ -30,6 +30,9 @@ from tqdm import tqdm
 import SimpleITK as sitk
 from torchvision.utils import make_grid
 from tqdm.auto import tqdm
+import pandas as pd
+import cv2
+from collections import defaultdict
 
 from util.utils import set_seed, t2n, to01, compose_wt_simple
 # config pre-trained model caching path
@@ -97,10 +100,190 @@ def test_time_training(_config, model, image, prediction):
     return model
 
 
+def plot_pred_gt_support(query_image, pred, gt, support_images, support_masks, score=None, save_path="debug/pred_vs_gt"):
+    """
+    Save 5 key images: support images, support mask, query, ground truth and prediction.
+    Handles both grayscale and RGB images consistently with the same mask color.
+    
+    Args:
+        query_image: Query image tensor (grayscale or RGB)
+        pred: 2d tensor where 1 represents foreground and 0 represents background
+        gt: 2d tensor where 1 represents foreground and 0 represents background
+        support_images: Support image tensors (grayscale or RGB)
+        support_masks: Support mask tensors
+        score: Optional score to add to filename
+        save_path: Base path without extension for saving images
+    """
+    # Create directory for this case
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    
+    # Process query image - ensure HxWxC format for visualization
+    query_image = query_image.clone().detach().cpu()
+    if len(query_image.shape) == 3 and query_image.shape[0] <= 3:  # CHW format
+        query_image = query_image.permute(1, 2, 0)
+    
+    # Handle grayscale vs RGB consistently
+    if len(query_image.shape) == 2 or (len(query_image.shape) == 3 and query_image.shape[2] == 1):
+        # For grayscale, use cmap='gray' for visualization
+        is_grayscale = True
+        if len(query_image.shape) == 3:
+            query_image = query_image.squeeze(2)  # Remove channel dimension for grayscale
+    else:
+        is_grayscale = False
+    
+    # Normalize image for visualization
+    query_image = (query_image - query_image.min()) / (query_image.max() - query_image.min() + 1e-8)
+    
+    # Convert pred and gt to numpy for visualization
+    pred_np = pred.cpu().numpy()
+    gt_np = gt.cpu().numpy()
+    
+    # Create colormap for mask overlays - using a consistent red colormap
+    mask_cmap = plt.cm.get_cmap('YlOrRd')  # Yellow-Orange-Red colormap
+
+    # Generate color masks with alpha values
+    pred_rgba = mask_cmap(pred_np)
+    pred_rgba[..., 3] = pred_np * 0.7  # Last channel is alpha - semitransparent where mask=1
+    
+    gt_rgba = mask_cmap(gt_np)
+    gt_rgba[..., 3] = gt_np * 0.7  # Last channel is alpha - semitransparent where mask=1
+    
+    # 1. Save query image (original)
+    plt.figure(figsize=(10, 10))
+    if is_grayscale:
+        plt.imshow(query_image, cmap='gray')
+    else:
+        plt.imshow(query_image)
+    plt.axis('off')
+    # Remove padding/whitespace
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+    plt.savefig(f"{save_path}/query.png", bbox_inches='tight', pad_inches=0)
+    plt.close()
+    
+    # 2. Save query image with prediction overlay
+    plt.figure(figsize=(10, 10))
+    if is_grayscale:
+        plt.imshow(query_image, cmap='gray')
+    else:
+        plt.imshow(query_image)
+    plt.imshow(pred_rgba)
+    plt.axis('off')
+    # Remove padding/whitespace
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+    plt.savefig(f"{save_path}/pred.png", bbox_inches='tight', pad_inches=0)
+    plt.close()
+    
+    # 3. Save query image with ground truth overlay
+    plt.figure(figsize=(10, 10))
+    if is_grayscale:
+        plt.imshow(query_image, cmap='gray')
+    else:
+        plt.imshow(query_image)
+    plt.imshow(gt_rgba)
+    plt.axis('off')
+    # Remove padding/whitespace
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+    plt.savefig(f"{save_path}/gt.png", bbox_inches='tight', pad_inches=0)
+    plt.close()
+    
+    # Process and save support images and masks (just the first one for brevity)
+    if support_images is not None:
+        if isinstance(support_images, list):
+            support_images = torch.cat([tensor for tensor_list in support_images for tensor in tensor_list], dim=0).clone().detach()
+        if isinstance(support_masks, list):
+            support_masks = torch.cat([tensor for tensor_list in support_masks for tensor in tensor_list], dim=0).clone().detach()
+        
+        # Move to CPU for processing
+        support_images = support_images.cpu()
+        support_masks = support_masks.cpu()
+        
+        # Handle different dimensions of support images
+        if len(support_images.shape) == 4:  # NCHW format
+            # Convert to NHWC for visualization
+            support_images = support_images.permute(0, 2, 3, 1)
+        
+        # Just process the first support image
+        i = 0
+        if support_images.shape[0] > 0:
+            support_img = support_images[i].clone()
+            support_mask = support_masks[i].clone()
+            
+            # Check if grayscale or RGB
+            if support_img.shape[-1] == 1:  # Last dimension is channels
+                support_img = support_img.squeeze(-1)  # Remove channel dimension
+                support_is_gray = True
+            elif support_img.shape[-1] == 3:
+                support_is_gray = False
+            else:  # Assume it's grayscale if not 1 or 3 channels
+                support_is_gray = True
+            
+            # Normalize support image
+            support_img = (support_img - support_img.min()) / (support_img.max() - support_img.min() + 1e-8)
+            
+            # 4. Save support image only
+            plt.figure(figsize=(10, 10))
+            if support_is_gray:
+                plt.imshow(support_img, cmap='gray')
+            else:
+                plt.imshow(support_img)
+            plt.axis('off')
+            # Remove padding/whitespace
+            plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+            plt.savefig(f"{save_path}/support_1.png", bbox_inches='tight', pad_inches=0)
+            plt.close()
+            
+            # 5. Save support mask only (direct mask visualization similar to gt/pred)
+            plt.figure(figsize=(10, 10))
+            
+            # Process support mask exactly like gt/pred
+            support_mask_np = support_mask.cpu().numpy()
+            support_mask_rgba = mask_cmap(support_mask_np)
+            support_mask_rgba[..., 3] = support_mask_np * 0.7  # Last channel is alpha - semitransparent where mask=1
+            
+            if is_grayscale:
+                plt.imshow(support_img, cmap='gray')
+            else:
+                plt.imshow(support_img)
+            plt.imshow(support_mask_rgba)
+            plt.axis('off')
+            # Remove padding/whitespace
+            plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+            plt.savefig(f"{save_path}/support_mask.png", bbox_inches='tight', pad_inches=0)
+            plt.close()
+
+def get_dice_iou_precision_recall(pred: torch.Tensor, gt: torch.Tensor):
+    """
+    pred: 2d tensor of shape (H, W) where 1 represents foreground and 0 represents background
+    gt: 2d tensor of shape (H, W) where 1 represents foreground and 0 represents background
+    """
+    if gt.sum() == 0:
+        print("gt is all background")
+        return {"dice": 0, "precision": 0, "recall": 0, "iou": 0}
+
+    # Resize pred to match gt dimensions if they're different
+    if pred.shape != gt.shape:
+        print(f"Resizing prediction from {pred.shape} to match ground truth {gt.shape}")
+        # Use interpolate to resize pred to match gt dimensions
+        pred = torch.nn.functional.interpolate(
+            pred.unsqueeze(0).unsqueeze(0).float(), 
+            size=gt.shape, 
+            mode='nearest'
+        ).squeeze(0).squeeze(0)
+
+    tp = (pred * gt).sum()
+    fp = (pred * (1 - gt)).sum()
+    fn = ((1 - pred) * gt).sum()
+    dice = 2 * tp / (2 * tp + fp + fn + 1e-8)
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    iou = tp / (tp + fp + fn + 1e-8)
+    return {"dice": dice, "iou": iou, "precision": precision, "recall": recall}
+
 @ex.automain
 def main(_run, _config, _log):
     if _run.observers:
         os.makedirs(f'{_run.observers[0].dir}/interm_preds', exist_ok=True)
+        os.makedirs(f'{_run.observers[0].dir}/bad_preds', exist_ok=True)
         for source_file, _ in _run.experiment_info['sources']:
             os.makedirs(os.path.dirname(f'{_run.observers[0].dir}/source/{source_file}'),
                         exist_ok=True)
@@ -203,6 +386,14 @@ def main(_run, _config, _log):
         print("Using sliding window confidence segmentation")  # TODO delete this
 
     save_pred_buffer = {}  # indexed by class
+    
+    # For tracking metrics by scan/case
+    mean_dice_by_scan = defaultdict(list)
+    mean_iou_by_scan = defaultdict(list)
+    mean_dice = []
+    mean_prec = []
+    mean_rec = []
+    mean_iou = []
 
     for curr_lb in test_labels:
         te_dataset.set_curr_cls(curr_lb)
@@ -281,30 +472,83 @@ def main(_run, _config, _log):
                     model.load_state_dict(state_dict)
                     
             query_pred = query_pred_logits.argmax(dim=1).cpu()
+            query_pred_orig = query_pred.clone()
             query_pred = F.interpolate(query_pred.unsqueeze(
                 0).float(), size=query_labels.shape[-2:], mode='nearest').squeeze(0).long().numpy()[0]
 
             if _config["debug"]:
-                save_pred_gt_fig(query_images, query_pred, query_labels, sup_img_part[0], sup_fgm_part[0][0],
-                                    f'debug/preds/scan_{_scan_id}_label_{curr_lb}_{idx}_gt_vs_pred.png')
+                save_path = f'debug/preds/scan_{_scan_id}_label_{curr_lb}_{idx}'
+                os.makedirs(save_path, exist_ok=True)
+                plot_pred_gt_support(
+                    query_images[0], 
+                    query_pred_orig, 
+                    query_labels[0].cpu(),
+                    sup_img_part, 
+                    sup_fgm_part,
+                    save_path=save_path
+                )
                 
             if _config['do_cca']:
                 query_pred = cca(query_pred, query_pred_logits)
                 if _config["debug"]:
-                    save_pred_gt_fig(query_images, query_pred, query_labels,
-                                        f'debug/scan_{_scan_id}_label_{curr_lb}_{idx}_gt_vs_pred_after_cca.png')
+                    save_path = f'debug/preds/scan_{_scan_id}_label_{curr_lb}_{idx}_after_cca'
+                    os.makedirs(save_path, exist_ok=True)
+                    plot_pred_gt_support(
+                        query_images[0], 
+                        torch.from_numpy(query_pred), 
+                        query_labels[0].cpu(),
+                        sup_img_part, 
+                        sup_fgm_part,
+                        save_path=save_path
+                    )
 
             _pred[..., ii] = query_pred.copy()
-            # _vis['assigned_proto'][ii] = assign_mats
-            # _vis['proto_grid'][ii] = proto_grid.cpu()
-            # proto_ids = torch.unique(proto_grid)
-            # _vis['support_img_parts'][ii] = q_part
 
+            # Calculate metrics for this slice
             if (sample_batched["z_id"] - sample_batched["z_max"] <= _config['z_margin']) and (sample_batched["z_id"] - sample_batched["z_min"] >= -1 * _config['z_margin']) and not sample_batched["is_end"]:
                 mar_val_metric_node.record(query_pred, np.array(
                     query_labels[0].cpu()), labels=[curr_lb], n_scan=curr_scan_count)
-            else:
-                pass
+                
+                # Calculate slice-wise metrics
+                metrics = get_dice_iou_precision_recall(
+                    torch.from_numpy(query_pred), 
+                    query_labels[0].cpu()
+                )
+                mean_dice.append(metrics["dice"])
+                mean_prec.append(metrics["precision"])
+                mean_rec.append(metrics["recall"])
+                mean_iou.append(metrics["iou"])
+                
+                # Store metrics by scan
+                mean_dice_by_scan[_scan_id].append(metrics["dice"])
+                mean_iou_by_scan[_scan_id].append(metrics["iou"])
+                
+                # Save bad predictions
+                if metrics["dice"] < 0.6 and _config["debug"]:
+                    path = f'debug/bad_preds/scan_{_scan_id}_label_{curr_lb}_{idx}_dice_{metrics["dice"]:.4f}'
+                    os.makedirs(path, exist_ok=True)
+                    print(f"saving bad prediction to {path}")
+                    plot_pred_gt_support(
+                        query_images[0], 
+                        torch.from_numpy(query_pred), 
+                        query_labels[0].cpu(),
+                        sup_img_part, 
+                        sup_fgm_part,
+                        save_path=path
+                    )
+                
+                # Save bad predictions to the run directory
+                if metrics["dice"] < 0.6:
+                    path = f'{_run.observers[0].dir}/bad_preds/scan_{_scan_id}_label_{curr_lb}_{idx}_dice_{metrics["dice"]:.4f}'
+                    os.makedirs(path, exist_ok=True)
+                    plot_pred_gt_support(
+                        query_images[0], 
+                        torch.from_numpy(query_pred), 
+                        query_labels[0].cpu(),
+                        sup_img_part, 
+                        sup_fgm_part,
+                        save_path=path
+                    )
 
             ii += 1
             # now check data format
@@ -339,6 +583,13 @@ def main(_run, _config, _log):
 
     mar_val_metric_node.reset()  # reset this calculation node
 
+    # Log metrics by scan
+    for _scan_id in mean_dice_by_scan.keys():
+        _run.log_scalar(f'mar_val_batches_meanDice_{_scan_id}', np.mean(mean_dice_by_scan[_scan_id]))
+        _run.log_scalar(f'mar_val_batches_meanIOU_{_scan_id}', np.mean(mean_iou_by_scan[_scan_id]))
+        _log.info(f'mar_val batches meanDice_{_scan_id}: {np.mean(mean_dice_by_scan[_scan_id])}')
+        _log.info(f'mar_val batches meanIOU_{_scan_id}: {np.mean(mean_iou_by_scan[_scan_id])}')
+
     # write validation result to log file
     _run.log_scalar('mar_val_batches_classDice', m_classDice.tolist())
     _run.log_scalar('mar_val_batches_meanDice', m_meanDice.tolist())
@@ -352,8 +603,18 @@ def main(_run, _config, _log):
     _run.log_scalar('mar_val_al_batches_meanRec', m_meanRec.tolist())
     _run.log_scalar('mar_val_al_batches_rawRec', m_rawRec.tolist())
 
+    # Log average metrics as well
+    if len(mean_dice) > 0:
+        _run.log_scalar('overall_mean_dice', float(np.mean(mean_dice)))
+        _run.log_scalar('overall_mean_prec', float(np.mean(mean_prec)))
+        _run.log_scalar('overall_mean_rec', float(np.mean(mean_rec)))
+        _run.log_scalar('overall_mean_iou', float(np.mean(mean_iou)))
+
     _log.info(f'mar_val batches classDice: {m_classDice}')
     _log.info(f'mar_val batches meanDice: {m_meanDice}')
+    
+    _log.info(f'overall_mean_dice: {np.mean(mean_dice)}')
+    _log.info(f'overall_mean_iou: {np.mean(mean_iou)}')
 
     _log.info(f'mar_val batches classPrec: {m_classPrec}')
     _log.info(f'mar_val batches meanPrec: {m_meanPrec}')

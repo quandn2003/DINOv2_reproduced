@@ -68,7 +68,7 @@ class SuperpixelDataset(BaseDataset):
         # find scans in the data folder
         self.nsup = nsup
         self.base_dir = base_dir
-        self.img_pids = [ re.findall('\d+', fid)[-1] for fid in glob.glob(self.base_dir + "/image_*.nii.gz") ]
+        self.img_pids = [ re.findall('\d+', fid)[-1] for fid in glob.glob(self.base_dir + "/image_*.nii") ]
         self.img_pids = CircularList(sorted( self.img_pids, key = lambda x: int(x)))
 
         # experiment configs
@@ -262,11 +262,11 @@ class SuperpixelDataset(BaseDataset):
         """
         Load the scan-slice-class indexing file
         """
-        with open(   os.path.join(self.base_dir, f'classmap_{self.min_fg}.json') , 'r' ) as fopen:
+        with open(   os.path.join(self.base_dir, f'.classmap_{self.min_fg}.json') , 'r' ) as fopen:
             cls_map =  json.load( fopen)
             fopen.close()
 
-        with open(   os.path.join(self.base_dir, 'classmap_1.json') , 'r' ) as fopen:
+        with open(   os.path.join(self.base_dir, '.classmap_1.json') , 'r' ) as fopen:
             self.tp1_cls_map =  json.load( fopen)
             fopen.close()
 
